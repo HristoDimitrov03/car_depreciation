@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f1f5f9;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --muted-strong: #334155;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #e2e8f0;
+  --border: #cbd5e1;
+  --accent: #0284c7;
+  --accent-soft: #e0f2fe;
+  --chip-bg: #ffffff;
+  --chip-border: #cbd5e1;
+  --chip-fg: #334155;
+  --chip-strong: #0f172a;
+  --empty-bg: #fffbeb;
+  --empty-border: #fcd34d;
+  --empty-fg: #78350f;
+  --plot-bg: rgba(241, 245, 249, 0.85);
+  --plot-grid: #e2e8f0;
+  --plot-text: #334155;
+  --plot-title: #0f172a;
+  --plot-trend: #475569;
+  --table-odd: rgba(248, 250, 252, 0.9);
+  --table-even: rgba(241, 245, 249, 0.9);
+  --tab-active-bg: #0f172a;
+  --tab-active-fg: #f8fafc;
+  --good: #059669;
+  --bad: #e11d48;
+}
+
+.dark {
+  --bg: #020617;
+  --fg: #e2e8f0;
+  --muted: #94a3b8;
+  --muted-strong: #cbd5e1;
+  --surface: rgba(15, 23, 42, 0.7);
+  --surface-2: rgba(15, 23, 42, 0.5);
+  --surface-3: #0f172a;
+  --border: #1e293b;
+  --accent: #38bdf8;
+  --accent-soft: rgba(14, 165, 233, 0.12);
+  --chip-bg: rgba(15, 23, 42, 0.7);
+  --chip-border: rgba(51, 65, 85, 0.8);
+  --chip-fg: #cbd5e1;
+  --chip-strong: #f1f5f9;
+  --empty-bg: rgba(69, 26, 3, 0.3);
+  --empty-border: rgba(120, 53, 15, 0.6);
+  --empty-fg: #fef3c7;
+  --plot-bg: rgba(15, 23, 42, 0.4);
+  --plot-grid: #1e293b;
+  --plot-text: #cbd5e1;
+  --plot-title: #e2e8f0;
+  --plot-trend: #e2e8f0;
+  --table-odd: rgba(2, 6, 23, 0.4);
+  --table-even: rgba(15, 23, 42, 0.4);
+  --tab-active-bg: #f1f5f9;
+  --tab-active-fg: #0f172a;
+  --good: #34d399;
+  --bad: #fb7185;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img,
+svg,
+canvas,
+.plotly,
+.js-plotly-plot {
+  max-width: 100%;
+}
+
+.js-plotly-plot .plotly .modebar {
+  display: none;
+}
+
+nextjs-portal,
+[data-next-badge-root] {
+  display: none !important;
+}

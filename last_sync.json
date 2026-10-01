@@ -1,0 +1,11 @@
+{
+  "started_at": "2026-10-01T12:27:18.812125+00:00",
+  "finished_at": "2026-10-01T12:36:39.447439+00:00",
+  "ok": true,
+  "mode": "daily",
+  "scraped": 1651,
+  "new_listings": 117,
+  "parsed": 14,
+  "upserted": 14,
+  "removed_sold": 1
+}
