@@ -32,7 +32,7 @@ Scrapes and cleans listings daily, stores them in Supabase, and visualizes price
 - Data freshness badge (last sync time + live ad count)
 - Dark / light theme (dark by default)
 - Responsive layout for phone and desktop
-- Daily automated sync from your PC via Windows Task Scheduler
+- Daily automated sync via **GitHub Actions** (no need for your PC to be on)
 
 ---
 
@@ -44,7 +44,7 @@ flowchart LR
   B --> C[(Supabase\ncar_listings)]
   C --> D[Next.js dashboard]
   D --> E[Vercel]
-  F[Windows Task Scheduler\n12:00 daily] --> B
+  F[GitHub Actions\n~12:00 daily] --> B
 ```
 
 | Layer | Role |
@@ -54,7 +54,7 @@ flowchart LR
 | **Sold check** | Removes inactive / deleted ads from the database |
 | **Supabase** | Stores cleaned listings; public site reads with the anon key (SELECT only) |
 | **Next.js app** (`web/`) | Dashboard UI deployed on Vercel |
-| **Daily sync** | `daily_sync.py` — new ads + sold cleanup once per day |
+| **Daily sync** | `daily_sync.py` via GitHub Actions — new ads + sold cleanup once per day |
 
 ---
 
@@ -63,7 +63,7 @@ flowchart LR
 - **Frontend:** Next.js 15, React 19, Tailwind CSS, Plotly
 - **Backend data:** Supabase (Postgres)
 - **Scraper:** Python, Playwright, httpx, pandas
-- **Hosting:** Vercel (web) + local PC scheduler (sync)
+- **Hosting:** Vercel (web) + GitHub Actions (daily sync)
 
 ---
 
@@ -71,7 +71,8 @@ flowchart LR
 
 ```text
 car_depreciation/
-├── daily_sync.py      # Full / daily sync + Windows task installer
+├── .github/workflows/ # GitHub Actions daily sync
+├── daily_sync.py      # Full / daily sync + optional Windows task installer
 ├── scraper.py         # mobile.bg scraping
 ├── parser.py          # Spec parsing / validation
 ├── sold_check.py      # Inactive listing detection
@@ -111,10 +112,26 @@ Useful commands:
 ```bash
 python daily_sync.py --full          # full catalog scrape
 python daily_sync.py --daily         # daily new + sold pass
-python daily_sync.py --install-task --time 12:00   # schedule daily run
+python daily_sync.py --install-task --time 12:00   # optional local Windows schedule
 ```
 
-### 2. Next.js dashboard
+### 2. GitHub Actions daily sync (recommended)
+
+The scraper runs in the cloud so your PC does not need to be on.
+
+1. Push this repo to GitHub (if it is not already there)
+2. In the GitHub repo go to **Settings → Secrets and variables → Actions**
+3. Add these repository secrets (same values as your root `.env`):
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+4. Open the **Actions** tab → **Daily sync** → **Run workflow** once to test
+
+The workflow (`.github/workflows/daily-sync.yml`) runs every day around **09:00 UTC** (~12:00 Bulgaria summer time). You can also trigger **daily** or **full** syncs manually from the Actions tab.
+
+If `mobile.bg` blocks GitHub’s servers, the job will fail or scrape nothing — then a small always-on VPS is the fallback. Your Vercel site and Supabase project stay unchanged either way.
+
+### 3. Next.js dashboard
 
 ```bash
 cd web

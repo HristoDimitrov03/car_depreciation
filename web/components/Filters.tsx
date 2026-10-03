@@ -25,6 +25,50 @@ const selectClass =
 const labelClass =
   "mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]";
 
+function HorsepowerInput({
+  id,
+  label,
+  initial,
+  placeholder,
+  onValue,
+}: {
+  id: string;
+  label: string;
+  initial: string;
+  placeholder: string;
+  onValue: (value: number | null) => void;
+}) {
+  const [text, setText] = useState(initial);
+
+  return (
+    <div>
+      <label className={labelClass} htmlFor={id}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={0}
+        step={1}
+        placeholder={placeholder}
+        className={selectClass}
+        value={text}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setText(raw);
+          if (raw.trim() === "") {
+            onValue(null);
+            return;
+          }
+          const parsed = Number(raw);
+          if (Number.isFinite(parsed)) onValue(parsed);
+        }}
+      />
+    </div>
+  );
+}
+
 export function Filters({ brands, models, filters, onChange }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -209,43 +253,22 @@ export function Filters({ brands, models, filters, onChange }: Props) {
         </fieldset>
 
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelClass} htmlFor="hpFrom">
-              HP From
-            </label>
-            <input
-              id="hpFrom"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={10}
-              className={selectClass}
-              value={filters.hpFrom}
-              onChange={(e) =>
-                onChange({ ...filters, hpFrom: Number(e.target.value) || 0 })
-              }
-            />
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="hpTo">
-              HP To
-            </label>
-            <input
-              id="hpTo"
-              type="number"
-              inputMode="numeric"
-              min={filters.hpFrom}
-              step={10}
-              className={selectClass}
-              value={filters.hpTo}
-              onChange={(e) =>
-                onChange({
-                  ...filters,
-                  hpTo: Math.max(Number(e.target.value) || 0, filters.hpFrom),
-                })
-              }
-            />
-          </div>
+          <HorsepowerInput
+            id="hpFrom"
+            label="HP From"
+            initial="0"
+            placeholder="0"
+            onValue={(value) =>
+              onChange({ ...filters, hpFrom: value == null ? 0 : value })
+            }
+          />
+          <HorsepowerInput
+            id="hpTo"
+            label="HP To"
+            initial=""
+            placeholder="Any"
+            onValue={(value) => onChange({ ...filters, hpTo: value })}
+          />
         </div>
 
         <div>

@@ -33,6 +33,7 @@ type AxisLayout = {
   _offset: number;
   _length: number;
   p2l: (px: number) => number;
+  l2p: (value: number) => number;
 };
 
 type FullLayout = {
@@ -41,7 +42,7 @@ type FullLayout = {
 };
 
 type PanSession = {
-  mode: "pan" | "stretch-y";
+  mode: "pan" | "pending-pan" | "stretch-y";
   originX: number;
   originY: number;
   xRange: AxisRange;
@@ -49,6 +50,7 @@ type PanSession = {
   xLength: number;
   yLength: number;
   anchorY?: number;
+  requiresSpace?: boolean;
 };
 
 function readAxisRange(axis: AxisLayout): AxisRange | null {
@@ -168,9 +170,11 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
   const gdRef = useRef<PlotlyHTMLElement | null>(null);
   const spaceDownRef = useRef(false);
   const panRef = useRef<PanSession | null>(null);
+  const draggedRef = useRef(false);
+  const dragEndedAtRef = useRef(0);
+  const boundsRef = useRef<{ x: AxisRange; y: AxisRange } | null>(null);
   const rangesRef = useRef<{ x?: AxisRange; y?: AxisRange }>({});
   const [ranges, setRanges] = useState<{ x?: AxisRange; y?: AxisRange }>({});
-  const [spaceHeld, setSpaceHeld] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [overPriceAxis, setOverPriceAxis] = useState(false);
   const [chartHeight, setChartHeight] = useState(320);
@@ -179,6 +183,27 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
   useEffect(() => {
     rangesRef.current = ranges;
   }, [ranges]);
+
+  const bounds = useMemo(() => {
+    if (listings.length === 0) return null;
+    let xLo = Infinity;
+    let xHi = -Infinity;
+    let yLo = Infinity;
+    let yHi = -Infinity;
+    for (const row of listings) {
+      const xv = x === "year" ? row.year : row.mileage_km;
+      const yv = row.price_eur;
+      if (!Number.isFinite(xv) || !Number.isFinite(yv)) continue;
+      if (xv < xLo) xLo = xv;
+      if (xv > xHi) xHi = xv;
+      if (yv < yLo) yLo = yv;
+      if (yv > yHi) yHi = yv;
+    }
+    if (!Number.isFinite(xLo) || !Number.isFinite(yLo)) return null;
+    return { x: [xLo, xHi] as AxisRange, y: [yLo, yHi] as AxisRange };
+  }, [listings, x]);
+
+  boundsRef.current = bounds;
 
   useEffect(() => {
     const updateSize = () => {
@@ -217,14 +242,41 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
 
     const releaseSpace = () => {
       spaceDownRef.current = false;
-      if (panRef.current?.mode === "pan") panRef.current = null;
-      setSpaceHeld(false);
-      setIsPanning(false);
+      if (panRef.current?.requiresSpace) {
+        panRef.current = null;
+        setIsPanning(false);
+      }
+    };
+
+    // Keeps the view tied to the data so it can never become empty or invalid.
+    const clampAxis = (range: AxisRange, data: AxisRange): AxisRange | null => {
+      if (!range.every(Number.isFinite)) return null;
+      const span = range[1] - range[0];
+      const dataSpan = data[1] - data[0] || Math.max(Math.abs(data[0]) * 0.1, 1);
+      if (!(span > 0) || span < dataSpan * 0.005 || span > dataSpan * 20) {
+        return null;
+      }
+      const keep = Math.min(span, dataSpan) * 0.2;
+      let shift = 0;
+      if (range[0] > data[1] - keep) shift = data[1] - keep - range[0];
+      else if (range[1] < data[0] + keep) shift = data[0] + keep - range[1];
+      return [range[0] + shift, range[1] + shift];
     };
 
     const applyRanges = (next: { x: AxisRange; y: AxisRange }) => {
-      rangesRef.current = next;
-      setRanges(next);
+      const limits = boundsRef.current;
+      if (!limits) return;
+      const cx = clampAxis(next.x, limits.x);
+      const cy = clampAxis(next.y, limits.y);
+      if (!cx || !cy) return;
+      const clamped = { x: cx, y: cy };
+      rangesRef.current = clamped;
+      setRanges(clamped);
+    };
+
+    const resetRanges = () => {
+      rangesRef.current = {};
+      setRanges({});
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -237,7 +289,6 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       if (!el.matches(":hover")) return;
 
       spaceDownRef.current = true;
-      setSpaceHeld(true);
     };
 
     const onKeyUp = (event: KeyboardEvent) => {
@@ -276,22 +327,48 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       const live = currentRanges(gd);
       if (!live) return;
 
+      // If the live view is broken (no overlap with the data), start fresh.
+      const limits = boundsRef.current;
+      if (
+        limits &&
+        (!clampAxis(live.xRange, limits.x) ||
+          !clampAxis(live.yRange, limits.y) ||
+          live.xRange[1] < limits.x[0] ||
+          live.xRange[0] > limits.x[1] ||
+          live.yRange[1] < limits.y[0] ||
+          live.yRange[0] > limits.y[1])
+      ) {
+        resetRanges();
+        return;
+      }
+
       const zone = pointerZone(gd, event.clientX, event.clientY);
 
-      if (spaceDownRef.current) {
-        event.preventDefault();
-        event.stopPropagation();
+      if (zone === "plot" || spaceDownRef.current) {
+        draggedRef.current = false;
+        const panNow = spaceDownRef.current && zone !== "plot";
+        if (panNow) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
         panRef.current = {
-          mode: "pan",
+          mode: panNow ? "pan" : "pending-pan",
           originX: event.clientX,
           originY: event.clientY,
           xRange: live.xRange,
           yRange: live.yRange,
           xLength: live.xLength,
           yLength: live.yLength,
+          requiresSpace: panNow,
         };
-        setIsPanning(true);
-        el.setPointerCapture(event.pointerId);
+        if (panNow) {
+          setIsPanning(true);
+          try {
+            el.setPointerCapture(event.pointerId);
+          } catch {
+            // Capture is optional; panning still follows the pointer.
+          }
+        }
         return;
       }
 
@@ -319,7 +396,11 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
           anchorY,
         };
         setIsPanning(true);
-        el.setPointerCapture(event.pointerId);
+        try {
+          el.setPointerCapture(event.pointerId);
+        } catch {
+          // Capture is optional; stretching still follows the pointer.
+        }
       }
     };
 
@@ -331,10 +412,34 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
 
       const session = panRef.current;
       if (!session) return;
+
+      // Left button is no longer held: end the gesture and keep the view as is.
+      if ((event.buttons & 1) === 0) {
+        endGesture(event.pointerId);
+        return;
+      }
+
+      if (session.mode === "pending-pan") {
+        const dx = event.clientX - session.originX;
+        const dy = event.clientY - session.originY;
+        if (dx * dx + dy * dy < 16) return;
+        session.mode = "pan";
+        draggedRef.current = true;
+        setIsPanning(true);
+        try {
+          if (!el.hasPointerCapture(event.pointerId)) {
+            el.setPointerCapture(event.pointerId);
+          }
+        } catch {
+          // Capture is optional; panning still follows the pointer.
+        }
+      }
+
       event.preventDefault();
 
       if (session.mode === "pan") {
-        if (!spaceDownRef.current) return;
+        if (session.requiresSpace && !spaceDownRef.current) return;
+        event.preventDefault();
         const next = {
           x: shiftRange(session.xRange, event.clientX - session.originX, session.xLength, false),
           y: shiftRange(session.yRange, event.clientY - session.originY, session.yLength, true),
@@ -352,14 +457,22 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       applyRanges({ x: session.xRange, y: nextY });
     };
 
-    const onPointerUp = (event: PointerEvent) => {
+    function endGesture(pointerId: number) {
       if (!panRef.current) return;
+      if (draggedRef.current) dragEndedAtRef.current = performance.now();
       panRef.current = null;
       setIsPanning(false);
-      if (el.hasPointerCapture(event.pointerId)) {
-        el.releasePointerCapture(event.pointerId);
+      try {
+        if (el.hasPointerCapture(pointerId)) {
+          el.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // Nothing to release when the pointer was never captured.
       }
-    };
+    }
+
+    const onPointerUp = (event: PointerEvent) => endGesture(event.pointerId);
+    const onWindowMouseUp = () => endGesture(-1);
 
     const onPointerLeave = () => {
       if (!panRef.current) setOverPriceAxis(false);
@@ -368,9 +481,15 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
     window.addEventListener("keydown", onKeyDown, { capture: true });
     window.addEventListener("keyup", onKeyUp, { capture: true });
     window.addEventListener("blur", releaseSpace);
+    window.addEventListener("pointerup", onPointerUp, { capture: true });
+    window.addEventListener("pointercancel", onPointerUp, { capture: true });
+    window.addEventListener("mouseup", onWindowMouseUp, { capture: true });
+    el.addEventListener("lostpointercapture", onPointerUp);
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("pointerdown", onPointerDown);
-    el.addEventListener("pointermove", onPointerMove);
+    // Listen on window: Plotly covers the page during a press, so the chart
+    // element itself would not receive the drag movement.
+    window.addEventListener("pointermove", onPointerMove, { capture: true });
     el.addEventListener("pointerup", onPointerUp);
     el.addEventListener("pointercancel", onPointerUp);
     el.addEventListener("pointerleave", onPointerLeave);
@@ -379,9 +498,13 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       window.removeEventListener("keydown", onKeyDown, { capture: true });
       window.removeEventListener("keyup", onKeyUp, { capture: true });
       window.removeEventListener("blur", releaseSpace);
+      window.removeEventListener("pointerup", onPointerUp, { capture: true });
+      window.removeEventListener("pointercancel", onPointerUp, { capture: true });
+      window.removeEventListener("mouseup", onWindowMouseUp, { capture: true });
+      el.removeEventListener("lostpointercapture", onPointerUp);
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("pointerdown", onPointerDown);
-      el.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointermove", onPointerMove, { capture: true });
       el.removeEventListener("pointerup", onPointerUp);
       el.removeEventListener("pointercancel", onPointerUp);
       el.removeEventListener("pointerleave", onPointerLeave);
@@ -441,6 +564,33 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
     return traces;
   }, [listings, x, theme]);
 
+  // Explicit default view computed from the data. Never rely on Plotly
+  // autorange, which can briefly fall back to a meaningless 0..6 range.
+  const defaultView = useMemo(() => {
+    if (!bounds) return null;
+    const pad = (lo: number, hi: number, ratio: number, min: number) => {
+      const p = Math.max((hi - lo) * ratio, min);
+      return [lo - p, hi + p] as AxisRange;
+    };
+    const xr =
+      x === "year"
+        ? pad(bounds.x[0], bounds.x[1], 0.04, 1)
+        : pad(bounds.x[0], bounds.x[1], 0.05, 1000);
+    const yr = pad(bounds.y[0], bounds.y[1], 0.06, 500);
+    if (bounds.y[0] >= 0 && yr[0] < 0) yr[0] = 0;
+    return { x: xr, y: yr };
+  }, [bounds, x]);
+
+  const viewX = ranges.x ?? defaultView?.x;
+  const viewY = ranges.y ?? defaultView?.y;
+
+  const yearTickStep = useMemo(() => {
+    const span = viewX ? viewX[1] - viewX[0] : 10;
+    // Whole-year steps only, thinned out so labels never crowd each other.
+    const maxTicks = isMobile ? 6 : 12;
+    return Math.max(1, Math.ceil(span / maxTicks));
+  }, [viewX, isMobile]);
+
   const layout = useMemo<Partial<Layout>>(() => {
     const plotText = cssVar("--plot-text", "#cbd5e1");
     const plotTitle = cssVar("--plot-title", "#e2e8f0");
@@ -463,8 +613,18 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
         gridcolor: plotGrid,
         zeroline: false,
         fixedrange: false,
-        ...(ranges.x
-          ? { range: ranges.x, autorange: false }
+        // Year chart: only whole years on the axis (no 2019.5 and similar).
+        ...(x === "year"
+          ? {
+              tickmode: "linear" as const,
+              tick0: 0,
+              dtick: yearTickStep,
+              tickformat: "d",
+              hoverformat: "d",
+            }
+          : {}),
+        ...(viewX
+          ? { range: viewX, autorange: false }
           : { autorange: true }),
       },
       yaxis: {
@@ -473,8 +633,8 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
         gridcolor: plotGrid,
         zeroline: false,
         fixedrange: false,
-        ...(ranges.y
-          ? { range: ranges.y, autorange: false }
+        ...(viewY
+          ? { range: viewY, autorange: false }
           : { autorange: true }),
       },
       legend: {
@@ -483,15 +643,38 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
         font: { size: isMobile ? 10 : 12 },
       },
       hovermode: "closest",
-      // Disable Plotly drag while Space-panning or stretching the price axis.
-      dragmode: spaceHeld || overPriceAxis ? false : "zoom",
+      // Left-drag panning is handled manually so Plotly box-zoom does not fight it.
+      dragmode: false,
       uirevision: `${x}-${title}-${theme}-${isMobile ? "m" : "d"}`,
     };
-  }, [title, xTitle, x, ranges, spaceHeld, overPriceAxis, theme, isMobile]);
+  }, [title, xTitle, x, viewX, viewY, theme, isMobile, yearTickStep]);
 
   function openListing(event: PlotMouseEvent) {
-    if (spaceDownRef.current || panRef.current) return;
+    // Never open an offer right after a drag.
+    if (
+      spaceDownRef.current ||
+      panRef.current ||
+      performance.now() - dragEndedAtRef.current < 300
+    ) {
+      return;
+    }
     const point = event.points?.[0];
+    const gd = gdRef.current;
+    const mouse = event.event;
+    if (!point || !gd || !mouse) return;
+
+    // Only accept clicks that really land on the circle, not on empty space.
+    const layout = fullLayout(gd);
+    const rect = gd.getBoundingClientRect();
+    const px =
+      rect.left + layout.xaxis._offset + layout.xaxis.l2p(Number(point.x));
+    const py =
+      rect.top + layout.yaxis._offset + layout.yaxis.l2p(Number(point.y));
+    const sizes = (point.data.marker as { size?: number[] } | undefined)?.size;
+    const size = Array.isArray(sizes) ? sizes[point.pointNumber] : 10;
+    const radius = (Number(size) || 10) / 2 + 3;
+    if (Math.hypot(mouse.clientX - px, mouse.clientY - py) > radius) return;
+
     const payload = point?.customdata;
     const link = Array.isArray(payload) ? payload[0] : undefined;
     if (typeof link === "string" && link) {
@@ -499,13 +682,11 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
     }
   }
 
-  const cursor = spaceHeld
-    ? isPanning
-      ? "grabbing"
-      : "grab"
+  const cursor = isPanning
+    ? "grabbing"
     : overPriceAxis || panRef.current?.mode === "stretch-y"
       ? "ns-resize"
-      : undefined;
+      : "grab";
 
   return (
     <div
@@ -520,7 +701,7 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
           displayModeBar: false,
           responsive: true,
           scrollZoom: false,
-          doubleClick: "reset",
+          doubleClick: false,
         }}
         style={{ width: "100%", height: chartHeight }}
         useResizeHandler
@@ -530,30 +711,6 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
         }}
         onUpdate={(_figure, gd) => {
           gdRef.current = gd as PlotlyHTMLElement;
-        }}
-        onRelayout={(event) => {
-          // Ignore Plotly pan noise while we own the gesture.
-          if (spaceDownRef.current || panRef.current) return;
-
-          const x0 = event["xaxis.range[0]"];
-          const x1 = event["xaxis.range[1]"];
-          const y0 = event["yaxis.range[0]"];
-          const y1 = event["yaxis.range[1]"];
-          if (
-            typeof x0 === "number" &&
-            typeof x1 === "number" &&
-            typeof y0 === "number" &&
-            typeof y1 === "number"
-          ) {
-            const next = { x: [x0, x1] as AxisRange, y: [y0, y1] as AxisRange };
-            rangesRef.current = next;
-            setRanges(next);
-            return;
-          }
-          if (event["xaxis.autorange"] || event["yaxis.autorange"]) {
-            rangesRef.current = {};
-            setRanges({});
-          }
         }}
         onDoubleClick={() => {
           rangesRef.current = {};

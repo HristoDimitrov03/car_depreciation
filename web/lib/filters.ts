@@ -8,7 +8,8 @@ export type DashboardFilters = {
   fuels: string[];
   transmissions: string[];
   hpFrom: number;
-  hpTo: number;
+  /** Upper horsepower bound. `null` means no maximum. */
+  hpTo: number | null;
   maxMileage: number | "any" | "over";
 };
 
@@ -33,9 +34,8 @@ export function applyFilters(
     if (row.year < filters.yearFrom || row.year > filters.yearTo) return false;
     if (fuels && !fuels.has(row.fuel_type)) return false;
     if (transmissions && !transmissions.has(row.transmission)) return false;
-    if (row.horsepower < filters.hpFrom || row.horsepower > filters.hpTo) {
-      return false;
-    }
+    if (row.horsepower < filters.hpFrom) return false;
+    if (filters.hpTo != null && row.horsepower > filters.hpTo) return false;
     if (filters.maxMileage === "over") {
       if (row.mileage_km <= MILEAGE_OVER_KM) return false;
     } else if (

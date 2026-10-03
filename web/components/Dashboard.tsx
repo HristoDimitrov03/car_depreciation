@@ -32,7 +32,7 @@ function defaultFilters(listings: Listing[]): DashboardFilters {
     fuels: [...FUEL_OPTIONS],
     transmissions: [...TRANSMISSION_OPTIONS],
     hpFrom: 0,
-    hpTo: 1000,
+    hpTo: null,
     maxMileage: "any",
   };
 }
@@ -154,7 +154,7 @@ export function Dashboard({
                       Tap a circle to open its mobile.bg offer.
                     </p>
                     <p className="mt-1 hidden text-sm text-[var(--muted)] sm:block">
-                      Double-click to reset chart filters. Space + drag to pan.
+                      Drag to move the chart. Double-click to reset.
                     </p>
                   </div>
                   <div className="grid w-full grid-cols-2 gap-1 rounded-lg border border-[var(--border)] p-1 sm:flex sm:w-auto">
