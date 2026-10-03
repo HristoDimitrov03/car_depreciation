@@ -1,0 +1,7 @@
+# Dependencies needed by daily_sync.py / scraper / uploader only.
+pandas==2.2.0
+supabase==2.15.3
+beautifulsoup4
+playwright
+httpx==0.28.1
+python-dotenv

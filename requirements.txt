@@ -5,4 +5,5 @@ supabase==2.3.4
 beautifulsoup4
 playwright
 httpx==0.25.2
+gotrue==2.8.1
 python-dotenv
