@@ -151,7 +151,8 @@ export function Dashboard({
                       Depreciation Curves
                     </h2>
                     <p className="mt-1 text-xs text-[var(--muted)] sm:text-sm">
-                      Tap a circle to open its mobile.bg offer.
+                      Tap a circle to open its mobile.bg offer. Pinch to zoom,
+                      drag to move.
                     </p>
                     <p className="mt-1 hidden text-sm text-[var(--muted)] sm:block">
                       Drag to move the chart. Double-click to reset.

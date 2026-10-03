@@ -53,6 +53,18 @@ type PanSession = {
   requiresSpace?: boolean;
 };
 
+type PinchSession = {
+  startDist: number;
+  xRange: AxisRange;
+  yRange: AxisRange;
+  anchorX: number;
+  anchorY: number;
+};
+
+function touchDistance(a: Touch, b: Touch) {
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
 function readAxisRange(axis: AxisLayout): AxisRange | null {
   const a = Number(axis.range?.[0]);
   const b = Number(axis.range?.[1]);
@@ -170,6 +182,7 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
   const gdRef = useRef<PlotlyHTMLElement | null>(null);
   const spaceDownRef = useRef(false);
   const panRef = useRef<PanSession | null>(null);
+  const pinchRef = useRef<PinchSession | null>(null);
   const draggedRef = useRef(false);
   const dragEndedAtRef = useRef(0);
   const boundsRef = useRef<{ x: AxisRange; y: AxisRange } | null>(null);
@@ -221,6 +234,7 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
     setRanges({});
     rangesRef.current = {};
     panRef.current = null;
+    pinchRef.current = null;
     setIsPanning(false);
     setOverPriceAxis(false);
   }, [listings, x]);
@@ -479,6 +493,73 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       if (!panRef.current) setOverPriceAxis(false);
     };
 
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length < 2) return;
+      event.preventDefault();
+      // Two fingers: cancel one-finger pan and start pinch-zoom.
+      panRef.current = null;
+      setIsPanning(false);
+
+      const gd = gdRef.current;
+      if (!gd) return;
+      const live = currentRanges(gd);
+      if (!live) return;
+
+      const t0 = event.touches[0];
+      const t1 = event.touches[1];
+      const midX = (t0.clientX + t1.clientX) / 2;
+      const midY = (t0.clientY + t1.clientY) / 2;
+      const rect = gd.getBoundingClientRect();
+      const xa = fullLayout(gd).xaxis;
+      const ya = fullLayout(gd).yaxis;
+      const xPx = Math.min(
+        Math.max(midX - rect.left - live.xOffset, 0),
+        live.xLength,
+      );
+      const yPx = Math.min(
+        Math.max(midY - rect.top - live.yOffset, 0),
+        live.yLength,
+      );
+      const anchorX = Number(xa.p2l(xPx));
+      const anchorY = Number(ya.p2l(yPx));
+      if (![anchorX, anchorY].every(Number.isFinite)) return;
+
+      pinchRef.current = {
+        startDist: Math.max(touchDistance(t0, t1), 1),
+        xRange: live.xRange,
+        yRange: live.yRange,
+        anchorX,
+        anchorY,
+      };
+      draggedRef.current = true;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      const session = pinchRef.current;
+      if (!session || event.touches.length < 2) {
+        if (panRef.current || pinchRef.current) event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      const dist = Math.max(
+        touchDistance(event.touches[0], event.touches[1]),
+        1,
+      );
+      // Fingers farther apart → zoom in (smaller axis span).
+      const scale = session.startDist / dist;
+      const nextX = scaleRange(session.xRange, session.anchorX, scale);
+      const nextY = scaleRange(session.yRange, session.anchorY, scale);
+      if (nextX && nextY) applyRanges({ x: nextX, y: nextY });
+    };
+
+    const onTouchEnd = (event: TouchEvent) => {
+      if (event.touches.length >= 2) return;
+      if (pinchRef.current) {
+        dragEndedAtRef.current = performance.now();
+        pinchRef.current = null;
+      }
+    };
+
     window.addEventListener("keydown", onKeyDown, { capture: true });
     window.addEventListener("keyup", onKeyUp, { capture: true });
     window.addEventListener("blur", releaseSpace);
@@ -494,6 +575,10 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
     el.addEventListener("pointerup", onPointerUp);
     el.addEventListener("pointercancel", onPointerUp);
     el.addEventListener("pointerleave", onPointerLeave);
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
 
     return () => {
       window.removeEventListener("keydown", onKeyDown, { capture: true });
@@ -509,6 +594,10 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       el.removeEventListener("pointerup", onPointerUp);
       el.removeEventListener("pointercancel", onPointerUp);
       el.removeEventListener("pointerleave", onPointerLeave);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
     };
   }, []);
 
@@ -540,8 +629,11 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
         opacity: 0.75,
       },
       cliponaxis: false,
-      hovertemplate:
-        x === "year"
+      // Phones: no hover cards; tap still opens the offer via onClick.
+      hoverinfo: isMobile ? "skip" : "all",
+      hovertemplate: isMobile
+        ? undefined
+        : x === "year"
           ? "<b>€%{y:,.0f}</b><br>Year: %{x}<br>Mileage: %{customdata[3]:,} km<br>HP: %{customdata[4]}<br>Transmission: %{customdata[1]}<extra>%{fullData.name}</extra>"
           : "<b>€%{y:,.0f}</b><br>Mileage: %{x:,} km<br>Year: %{customdata[2]}<br>HP: %{customdata[4]}<br>Transmission: %{customdata[1]}<extra>%{fullData.name}</extra>",
     }));
@@ -558,12 +650,13 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
         x: line.map((point) => point.x),
         y: line.map((point) => point.y),
         line: { color: trendColor, width: 2, dash: "dot" },
-        hovertemplate: "Trend: €%{y:,.0f}<extra></extra>",
+        hoverinfo: isMobile ? "skip" : "all",
+        hovertemplate: isMobile ? undefined : "Trend: €%{y:,.0f}<extra></extra>",
       });
     }
 
     return traces;
-  }, [listings, x, theme]);
+  }, [listings, x, theme, isMobile]);
 
   // Explicit default view computed from the data. Never rely on Plotly
   // autorange, which can briefly fall back to a meaningless 0..6 range.
@@ -643,7 +736,8 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
         y: isMobile ? -0.28 : -0.22,
         font: { size: isMobile ? 10 : 12 },
       },
-      hovermode: "closest",
+      // Phones must not show the car-spec hover card on tap.
+      hovermode: isMobile ? false : "closest",
       // Left-drag panning is handled manually so Plotly box-zoom does not fight it.
       dragmode: false,
       uirevision: `${x}-${title}-${theme}-${isMobile ? "m" : "d"}`,
@@ -697,8 +791,9 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
   return (
     <div
       ref={wrapRef}
-      className={`w-full max-w-full select-none ${isMobile ? "" : "touch-none"}`}
-      style={{ cursor, height: chartHeight }}
+      // touch-none keeps pinch/drag on the chart instead of zooming the page.
+      className="w-full max-w-full select-none touch-none"
+      style={{ cursor, height: chartHeight, touchAction: "none" }}
     >
       <Plot
         data={data}
