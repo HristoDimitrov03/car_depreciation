@@ -360,12 +360,16 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
 
       if (zone === "plot" || spaceDownRef.current) {
         draggedRef.current = false;
-        const panNow = spaceDownRef.current && zone !== "plot";
+        const panNow =
+          event.pointerType === "touch" ||
+          event.pointerType === "pen" ||
+          (spaceDownRef.current && zone !== "plot");
         if (panNow) {
           event.preventDefault();
           event.stopPropagation();
         }
         panRef.current = {
+          // Touch: pan immediately. Mouse: wait a few pixels so clicks still open offers.
           mode: panNow ? "pan" : "pending-pan",
           originX: event.clientX,
           originY: event.clientY,
@@ -373,9 +377,12 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
           yRange: live.yRange,
           xLength: live.xLength,
           yLength: live.yLength,
-          requiresSpace: panNow,
+          requiresSpace: spaceDownRef.current && zone !== "plot",
         };
         if (panNow) {
+          if (event.pointerType === "touch" || event.pointerType === "pen") {
+            draggedRef.current = false;
+          }
           setIsPanning(true);
           try {
             el.setPointerCapture(event.pointerId);
@@ -424,11 +431,18 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
         setOverPriceAxis(pointerZone(gd, event.clientX, event.clientY) === "y-axis");
       }
 
+      // Pinch owns the gesture while two fingers are down.
+      if (pinchRef.current) return;
+
       const session = panRef.current;
       if (!session) return;
 
-      // Left button is no longer held: end the gesture and keep the view as is.
-      if ((event.buttons & 1) === 0) {
+      // Mouse: stop when the left button is released. Touch often reports
+      // buttons === 0 during moves, so do not use that check there.
+      if (
+        event.pointerType === "mouse" &&
+        (event.buttons & 1) === 0
+      ) {
         endGesture(event.pointerId);
         return;
       }
@@ -454,9 +468,12 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       if (session.mode === "pan") {
         if (session.requiresSpace && !spaceDownRef.current) return;
         event.preventDefault();
+        const dx = event.clientX - session.originX;
+        const dy = event.clientY - session.originY;
+        if (Math.abs(dx) + Math.abs(dy) > 2) draggedRef.current = true;
         const next = {
-          x: shiftRange(session.xRange, event.clientX - session.originX, session.xLength, false),
-          y: shiftRange(session.yRange, event.clientY - session.originY, session.yLength, true),
+          x: shiftRange(session.xRange, dx, session.xLength, false),
+          y: shiftRange(session.yRange, dy, session.yLength, true),
         };
         if (![...next.x, ...next.y].every(Number.isFinite)) return;
         applyRanges(next);
