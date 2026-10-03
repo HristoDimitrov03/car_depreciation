@@ -4,5 +4,5 @@ plotly==5.18.0
 supabase==2.3.4
 beautifulsoup4
 playwright
-httpx
+httpx==0.27.2
 python-dotenv
