@@ -462,9 +462,10 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       if (draggedRef.current) dragEndedAtRef.current = performance.now();
       panRef.current = null;
       setIsPanning(false);
+      const node = wrapRef.current;
       try {
-        if (el.hasPointerCapture(pointerId)) {
-          el.releasePointerCapture(pointerId);
+        if (node?.hasPointerCapture(pointerId)) {
+          node.releasePointerCapture(pointerId);
         }
       } catch {
         // Nothing to release when the pointer was never captured.
@@ -670,8 +671,13 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       rect.left + layout.xaxis._offset + layout.xaxis.l2p(Number(point.x));
     const py =
       rect.top + layout.yaxis._offset + layout.yaxis.l2p(Number(point.y));
-    const sizes = (point.data.marker as { size?: number[] } | undefined)?.size;
-    const size = Array.isArray(sizes) ? sizes[point.pointNumber] : 10;
+    const marker = (point.data as { marker?: { size?: number | number[] } }).marker;
+    const sizes = marker?.size;
+    const size = Array.isArray(sizes)
+      ? sizes[point.pointNumber]
+      : typeof sizes === "number"
+        ? sizes
+        : 10;
     const radius = (Number(size) || 10) / 2 + 3;
     if (Math.hypot(mouse.clientX - px, mouse.clientY - py) > radius) return;
 
