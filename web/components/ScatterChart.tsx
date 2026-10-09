@@ -192,10 +192,15 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
   const [overPriceAxis, setOverPriceAxis] = useState(false);
   const [chartHeight, setChartHeight] = useState(320);
   const [isMobile, setIsMobile] = useState(false);
+  const isMobileRef = useRef(false);
 
   useEffect(() => {
     rangesRef.current = ranges;
   }, [ranges]);
+
+  useEffect(() => {
+    isMobileRef.current = isMobile;
+  }, [isMobile]);
 
   const bounds = useMemo(() => {
     if (listings.length === 0) return null;
@@ -341,7 +346,8 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
       const live = currentRanges(gd);
       if (!live) return;
 
-      // If the live view is broken (no overlap with the data), start fresh.
+      // If Plotly's live view is temporarily invalid, restore the last good
+      // zoom instead of wiping back to the full default view.
       const limits = boundsRef.current;
       if (
         limits &&
@@ -352,7 +358,12 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
           live.yRange[1] < limits.y[0] ||
           live.yRange[0] > limits.y[1])
       ) {
-        resetRanges();
+        const saved = rangesRef.current;
+        if (saved.x && saved.y) {
+          applyRanges({ x: saved.x, y: saved.y });
+        } else {
+          resetRanges();
+        }
         return;
       }
 
@@ -572,8 +583,11 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
     const onTouchEnd = (event: TouchEvent) => {
       if (event.touches.length >= 2) return;
       if (pinchRef.current) {
+        // Block the ghost double-tap that phones fire after lifting two fingers.
         dragEndedAtRef.current = performance.now();
+        draggedRef.current = true;
         pinchRef.current = null;
+        event.preventDefault();
       }
     };
 
@@ -831,6 +845,15 @@ export function ScatterChart({ listings, x, title, xTitle }: Props) {
           gdRef.current = gd as PlotlyHTMLElement;
         }}
         onDoubleClick={() => {
+          // Phones often emit a double-tap after pinch-release; never reset there.
+          if (isMobileRef.current) return;
+          if (
+            pinchRef.current ||
+            panRef.current ||
+            performance.now() - dragEndedAtRef.current < 800
+          ) {
+            return;
+          }
           rangesRef.current = {};
           setRanges({});
         }}
