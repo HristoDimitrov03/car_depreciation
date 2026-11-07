@@ -175,4 +175,4 @@ Do **not** add the service role key to Vercel. The anon key is a public frontend
 
 ## Disclaimer
 
-Personal portfolio project. Not affiliated with mobile.bg or Škoda. Listing data comes from publicly available mobile.bg pages and may change or go out of date between syncs.
+Personal project. Not affiliated with mobile.bg or Škoda. Listing data comes from publicly available mobile.bg pages and may change or go out of date between syncs.
